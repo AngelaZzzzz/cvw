@@ -35,20 +35,32 @@ module vlane import cvw::*;  #(parameter cvw_t P) (
   output logic [P.ELEN-1:0] LaneResult     // lane result
 );
 
-  logic [P.ELEN-1:0] SumE, ProductE;
+  logic [P.ELEN-1:0] SumE, ProductE, ShiftE;
   logic [P.ELEN-1:0] ArithResult; // arithmetic result
-  logic mul;  // whether the instruction is multiply
-  logic move; // whether the instruction is move
+  logic mul, move, shift;  // whether the instruction is multiply, move or shift
+  logic typeI; // whether the instrution is type I, this is used to differetiate between mul and shift
+  logic shiftRight, shiftArith; // for vshifter
 
-
+  assign typeI = (Funct3E == 3'b000) | (Funct3E == 3'b011) | (Funct3E == 3'b100);
   assign mul = (Funct6E == 6'b100101) & (Funct3E[1:0] == 2'b10);
   assign move = Funct6E == 6'b010111;
+  assign shiftRight = (Funct6E[5:1] == 5'b10100);
+  assign shift = typeI & (shiftRight | Funct6E == 6'b100101);
+  assign shiftArith = Funct6E[0]; // the difference between logical and arithmetic is the LSB of Funct6E
 
   valu #(P) valu(.A(SrcA), .B(SrcB), .Funct6E(Funct6E), .Funct3E(Funct3E), .Sum(SumE));
 
   vmul #(P) vmul(.A(SrcA), .B(SrcB), .Product(ProductE));
 
-  mux2 #(P.ELEN) resultmux(SumE, ProductE, mul, ArithResult);
-  mux2 #(P.ELEN) resultmux2(ArithResult, SrcA, move, LaneResult);
+  vshifter #(P) vshift(.A(SrcA), .B(SrcB), .Y(ShiftE), .dir(shiftRight), .arith(shiftArith));
+
+  always_comb
+    if (mul) ArithResult = ProductE;
+    else if (shift) ArithResult = ShiftE;
+    else ArithResult = SumE;
+
+  //mux2 #(P.ELEN) resultmux(SumE, ProductE, mul, ArithResult);
+  //mux2 #(P.ELEN) resultmux2(ArithResult, ShiftE, shift, ArithResult);
+  mux2 #(P.ELEN) resultmux3(ArithResult, SrcA, move, LaneResult);
 
 endmodule
